@@ -1,0 +1,58 @@
+#!/bin/sh
+# 2016 Felix Herzog (snoopotic)
+# tunnelbroker.net (he.net) keepalive script
+# for asuswrt_merlin routers using dhcpc events
+
+## CONFIG
+# he.net username
+HEUSERNAME=""
+# he.net password
+HEPASSWORD=""
+# he.net host-id (it is a number)
+HEHOSTID=""
+
+# HE DNS fqdn (for ipv4 update)
+HEDNSHOSTNAME=""
+# HE DNS Update Password
+HEDNSPASSWORD=""
+
+
+## CONFIG END
+
+
+
+myIPV4 (){
+  # get and return curent IPv4 address
+  MYIPV4=$(ifconfig eth0 | grep inet | awk '{print $2}' | sed 's/addr://' | grep .)
+  logger -t dhcpc-event my eth0 ip: $MYIPV4
+}
+
+case $1 in
+  bound|rebound)
+    # get and save IP
+    myIPV4
+    echo $MYIPV4 > /tmp/MYIPV4.bound
+    # actualize ipv4 at tunnelbroker
+    logger -t dhcpc-event $1 tunnelbroker.net response: $(curl -s "https://$HEUSERNAME:$HEPASSWORD@ipv4.tunnelbroker.net/nic/update?hostname=$HEHOSTID")
+    # actualize he.net DynDNS
+    logger -t dhcpc-event $1 DynDNS IPv4 response: $(curl -s -k -4 "https://dyn.dns.he.net/nic/update" -d "hostname=$HEDNSHOSTNAME" -d "password=$HEDNSPASSWORD")
+    ;;
+  renew)
+    # get IP
+    myIPV4
+    [ -f /tmp/MYIPV4.bound ] && MYIPV4BOUND=$(cat /tmp/MYIPV4.bound) || MYIPV4BOUND="nonebound";
+
+    # test bound IP vs. actual IP
+    if [ "$MYIPV4" != "$MYIPV4BOUND" ]
+      then
+        logger -t dhcpc-event $1 Renew event showed different IP. MYIPV4:$MYIPV4 MYIPV4BOUND:$MYIPV4BOUND. rebinding;
+        logger -t dhcpc-event $1 $( $0 rebound);
+      else
+        logger -t dhcpc-event $1 Renew event ok. IPs equal:  MYIPV4:$MYIPV4 MYIPV4BOUND:$MYIPV4BOUND.;
+    fi;
+    ;;
+  *)
+    logger -t dhcpc-event "something happened: $1"
+    ;;
+esac
+    
